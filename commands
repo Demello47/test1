@@ -1,3 +1,36 @@
 Select-String -Path "C:\logs\pass_run\template_summary.json" -Pattern '"statistics"' -Context 0,5
 
 findstr /C:"\"statistics\"" C:\logs\pass_run\template_summary.json
+
+
+
+
+Теперь нам нужно посмотреть какие именно 106 шаблонов появились в FAIL и какие 3 есть в PASS.
+В PowerShell выполни:
+
+$pass = Get-Content ".\PASS_RUN\template_summary.json" -Raw | ConvertFrom-Json
+$fail = Get-Content ".\FAIL\template_summary.json" -Raw | ConvertFrom-Json
+
+Потом:
+
+$pass.templates | Select-Object count, template
+
+Это покажет все 3 PASS-шаблона.
+После этого:
+
+$fail.templates |
+    Sort-Object count -Descending |
+    Select-Object -First 30 count, template
+
+Это покажет 30 самых часто встречающихся шаблонов FAIL.
+И ещё одна очень полезная команда:
+
+$passTemplates = $pass.templates.template
+
+$fail.templates |
+    Where-Object { $_.template -notin $passTemplates } |
+    Sort-Object count -Descending |
+    Select-Object -First 30 count, template
+
+Она покажет:
+Какие шаблоны присутствуют в FAIL, но вообще отсутствуют в PASS.
