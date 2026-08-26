@@ -100,6 +100,11 @@ DATE_TIME_RE = re.compile(
 )
 
 
+DATE_EVENT_RE = re.compile(
+    r"\b\d{2}\.\d{2},\d{4}\.\d+\b"
+)
+
+
 UUID_RE = re.compile(
     r"\b"
     r"[0-9a-fA-F]{8}-"
