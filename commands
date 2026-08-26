@@ -1,0 +1,3 @@
+Select-String -Path "C:\logs\pass_run\template_summary.json" -Pattern '"statistics"' -Context 0,5
+
+findstr /C:"\"statistics\"" C:\logs\pass_run\template_summary.json
