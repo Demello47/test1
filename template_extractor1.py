@@ -100,12 +100,18 @@ DATE_TIME_RE = re.compile(
 )
 
 
-# Primer:
-# 04.02.2026,346
-# 04.02.2026,575
-# 05.03.2026,773
-DATE_EVENT_RE = re.compile(
-    r"\b\d{2}\.\d{2}\.\d{4},\d+\b"
+# ==========================================================
+# ESli DATA UZHE PREVRATILAS V:
+#
+# <TIMESTAMP>,525
+#
+# TO PREVRASCHAEM V:
+#
+# <DATE_EVENT>
+# ==========================================================
+
+TIMESTAMP_SUFFIX_RE = re.compile(
+    r"<TIMESTAMP>,\d+"
 )
 
 
@@ -272,10 +278,11 @@ def make_template(line):
 
 
     # ------------------------------------------------------
-    # Date event
+    # Timestamp + dinamicheskoe chislo
     #
     # Primer:
-    # 04.02.2026,346
+    #
+    # <TIMESTAMP>,525
     #
     # ->
     #
@@ -284,7 +291,7 @@ def make_template(line):
 
     text = replace_and_collect(
         text,
-        DATE_EVENT_RE,
+        TIMESTAMP_SUFFIX_RE,
         "<DATE_EVENT>",
         "date_event",
         values
