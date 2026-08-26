@@ -34,3 +34,26 @@ $fail.templates |
 
 Она покажет:
 Какие шаблоны присутствуют в FAIL, но вообще отсутствуют в PASS.
+
+
+Что делаем сейчас
+Ничего в template_extractor.py пока не меняй.
+Теперь выполни эту команду для PASS:
+
+$pass.templates |
+    Sort-Object count -Descending |
+    Select-Object count, template
+
+У тебя PASS-шаблонов всего 3, поэтому она покажет их все.
+Мне нужно увидеть эти 3 строки.
+После этого выполни ещё для FAIL:
+
+$fail.templates |
+    Sort-Object count -Descending |
+    Select-Object -First 15 count, template
+
+Но второй результат у нас частично уже есть на фотографии, поэтому главное сейчас — покажи 3 шаблона PASS.
+Почему это важно: у PASS всего 3 unique_templates, а у FAIL 106. Это очень большая разница:
+
+
+
