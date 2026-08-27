@@ -94,6 +94,9 @@ def find_earliest_date(folder_path):
                             except ValueError:
                                 continue
 
+                            if dt.year == 1970:
+                                continue
+
                             if earliest is None or dt < earliest:
                                 earliest = dt
                             # nashli datu v etoj stroke - dalshe stroki ne smotrim
