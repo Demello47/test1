@@ -101,4 +101,4 @@ python3 -c "import json; d=json.load(open('drain_templates.json')); [print(x['co
 
 Нас интересует, сможет ли Drain3 самостоятельно сделать хорошие шаблоны для твоих реальных случаев, например свести многочисленные:
 
-python3 -c "import json; d=json.load(open('drain_templates.json')); print(d['statistics'])"
+python3 -c "import json; d=json.load(open('drain_templates.json', encoding='utf-8')); print(d['statistics'])"
