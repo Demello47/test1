@@ -27,6 +27,14 @@ SKIP_EXTENSIONS = {
 
 
 # ==========================================================
+# GODY KOTORYE IGNORIRUEM PRI POISKE DAT
+# (obychno eto zaglushki / musornye znachenia v logah)
+# ==========================================================
+
+IGNORED_YEARS = {1970, 2021, 2010}
+
+
+# ==========================================================
 # PATTERNY DAT/VREMENI + FUNKCIA PARSINGA DLIA KAZHDOGO
 #
 # Poriadok vazhen: bolee spetsifichnye patterny idut pervymi
@@ -94,7 +102,7 @@ def find_earliest_date(folder_path):
                             except ValueError:
                                 continue
 
-                            if dt.year == 1970:
+                            if dt.year in IGNORED_YEARS:
                                 continue
 
                             if earliest is None or dt < earliest:
