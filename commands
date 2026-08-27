@@ -61,5 +61,22 @@ python .\compare_templates.py `
 ".\PASS_RUN\template_summary.json" `
 ".\FAIL\template_summary.json"
 
+##№₽################₽₽₽$######₽
 
 
+. В PowerShell выполни:
+
+Select-String -Path ".\FAIL\run_comparison_report.txt" `
+-Pattern "FILES PRESENT ONLY IN PASS" -Context 0,30
+
+и:
+
+Select-String -Path ".\FAIL\run_comparison_report.txt" `
+-Pattern "FILES PRESENT ONLY IN FAIL" -Context 0,30
+
+Посмотри, есть ли там много файлов.
+Ещё выполни:
+
+Get-Content ".\FAIL\run_comparison_report.txt" | Select-String "TEST:"
+
+Если TEST: вообще ничего не показывает, значит file_comparisons действительно пустой.
