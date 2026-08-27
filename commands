@@ -80,3 +80,23 @@ Select-String -Path ".\FAIL\run_comparison_report.txt" `
 Get-Content ".\FAIL\run_comparison_report.txt" | Select-String "TEST:"
 
 Если TEST: вообще ничего не показывает, значит file_comparisons действительно пустой.
+
+
+###########################
+
+Сначала проверь синтаксис:
+python3 -m py_compile drain_test.py
+
+Потом я бы не запускал сразу на всей огромной PASS-папке. Возьми тот же небольшой набор логов, на котором мы уже тестировали наши шаблоны:
+
+python3 drain_test.py /path/to/TEST_FOLDER
+
+После завершения появится:
+
+drain_templates.json
+
+Посмотреть первые самые частые шаблоны можно так:
+
+python3 -c "import json; d=json.load(open('drain_templates.json')); [print(x['count'], x['template']) for x in d['templates'][:30]]"
+
+Нас интересует, сможет ли Drain3 самостоятельно сделать хорошие шаблоны для твоих реальных случаев, например свести многочисленные:
