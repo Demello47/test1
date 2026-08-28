@@ -308,3 +308,222 @@ def process_file(file_path, relative_path):
 
 # ==========================================================
 # MAIN
+# ==========================================================
+
+def main():
+
+    global total_files
+
+    if not os.path.isdir(ROOT):
+
+        print(
+            f"Directory not found: {ROOT}"
+        )
+
+        sys.exit(1)
+
+
+    print("=" * 70)
+    print("DRAIN3 TEST V2")
+    print("=" * 70)
+
+    print(f"Root: {ROOT}")
+    print()
+
+
+    # ======================================================
+    # SCAN
+    # ======================================================
+
+    for directory, subdirectories, files in os.walk(ROOT):
+
+        for filename in files:
+
+            if should_skip(filename):
+                continue
+
+            file_path = os.path.join(
+                directory,
+                filename
+            )
+
+            relative_path = os.path.relpath(
+                file_path,
+                ROOT
+            )
+
+            total_files += 1
+
+            print(
+                f"[{total_files}] "
+                f"Scanning: {relative_path}",
+                flush=True
+            )
+
+            process_file(
+                file_path,
+                relative_path
+            )
+
+
+    # ======================================================
+    # COLLECT CLUSTERS
+    # ======================================================
+
+    clusters = []
+
+    for cluster in template_miner.drain.clusters:
+
+        clusters.append({
+
+            "cluster_id":
+                cluster.cluster_id,
+
+            "count":
+                cluster.size,
+
+            "template":
+                cluster.get_template()
+        })
+
+
+    clusters.sort(
+        key=lambda x: x["count"],
+        reverse=True
+    )
+
+
+    # ======================================================
+    # PER FILE
+    # ======================================================
+
+    per_file = {}
+
+    for file_name, cluster_counts in file_templates.items():
+
+        entries = []
+
+        for cluster_id, count in cluster_counts.items():
+
+            cluster = (
+                template_miner
+                .drain
+                .id_to_cluster[
+                    cluster_id
+                ]
+            )
+
+            entries.append({
+
+                "cluster_id":
+                    cluster_id,
+
+                "count":
+                    count,
+
+                "template":
+                    cluster.get_template()
+            })
+
+
+        entries.sort(
+            key=lambda x: x["count"],
+            reverse=True
+        )
+
+        per_file[file_name] = entries
+
+
+    # ======================================================
+    # RESULT
+    # ======================================================
+
+    result = {
+
+        "root": ROOT,
+
+        "statistics": {
+
+            "files":
+                total_files,
+
+            "physical_lines":
+                physical_lines,
+
+            "logical_events":
+                logical_events,
+
+            "embedded_newline_lines":
+                embedded_newline_lines,
+
+            "templates":
+                len(clusters)
+        },
+
+        "templates":
+            clusters,
+
+        "files":
+            per_file
+    }
+
+
+    print()
+    print("Writing JSON...")
+
+
+    with open(
+        OUTPUT_FILE,
+        "w",
+        encoding="utf-8"
+    ) as output:
+
+        json.dump(
+            result,
+            output,
+            indent=2,
+            ensure_ascii=False
+        )
+
+
+    # ======================================================
+    # FINAL
+    # ======================================================
+
+    print()
+    print("=" * 70)
+    print("DRAIN3 V2 COMPLETED")
+    print("=" * 70)
+
+    print(
+        f"Files:                  "
+        f"{total_files:,}"
+    )
+
+    print(
+        f"Physical lines:         "
+        f"{physical_lines:,}"
+    )
+
+    print(
+        f"Logical events:         "
+        f"{logical_events:,}"
+    )
+
+    print(
+        f"Lines containing \\n:    "
+        f"{embedded_newline_lines:,}"
+    )
+
+    print(
+        f"Templates:              "
+        f"{len(clusters):,}"
+    )
+
+    print()
+    print(f"Output: {OUTPUT_FILE}")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
