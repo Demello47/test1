@@ -1,41 +1,40 @@
 import os
 import shutil
 import zipfile
-import csv
 from pathlib import Path
+from datetime import datetime
 
 
 # ==========================================================
-# CONFIG
+# SETTINGS
 # ==========================================================
 
-# Gde iskat ZIP faily
-SOURCE_ROOT = Path(r"C:\PATH\TO\SOURCE")
+# Fail so spiskom serial numbers.
+# Odin serial na odnoj stroke.
+SERIALS_FILE = Path("serials.txt")
 
-# Spisok serial numbers
-SERIALS_FILE = Path(r"C:\PATH\TO\serials.txt")
 
-# Kuda kopirovat najdennye ZIP
-ZIP_OUTPUT = Path(r"C:\PATH\TO\OUTPUT\zips")
+# Papka gde ishchem ZIP.
+# Poisk budet rekursivnyj vo vseh podpapkah.
+SOURCE_ROOT = Path(r"C:\Logs\ZIP_SOURCE")
 
-# Kuda raspakovyvat ZIP
-EXTRACT_OUTPUT = Path(r"C:\PATH\TO\OUTPUT\extracted")
 
-# Kuda sobirat finalnye LOG
-LOG_OUTPUT = Path(r"C:\PATH\TO\OUTPUT\logs")
+# Kuda kopirovat najdennye ZIP.
+ZIP_OUTPUT_DIR = Path(r"C:\Logs\FOUND_ZIPS")
 
-# Finalnyj CSV report
-REPORT_FILE = Path(r"C:\PATH\TO\OUTPUT\scan_report.csv")
 
-# Prostoj spisok serialov, dlja kotoryh LOG byl najden
-SCANNED_SERIALS_FILE = Path(
-    r"C:\PATH\TO\OUTPUT\scanned_serials.txt"
-)
+# Kuda raspakovyvat ZIP.
+EXTRACT_ROOT = Path(r"C:\Logs\EXTRACTED")
 
-# Serialy, kotorye ne udalos obrabotat
-MISSING_SERIALS_FILE = Path(
-    r"C:\PATH\TO\OUTPUT\missing_serials.txt"
-)
+
+# Kuda kopirovat finalnye LOG.
+LOG_OUTPUT_DIR = Path(r"C:\Logs\FOUND_LOGS")
+
+
+# Otchety.
+SCANNED_FILE = Path("scanned_serials.txt")
+MISSING_FILE = Path("missing_serials.txt")
+REPORT_FILE = Path("scan_report.txt")
 
 
 # ==========================================================
@@ -44,134 +43,105 @@ MISSING_SERIALS_FILE = Path(
 
 def load_serials():
 
-    with open(
-        SERIALS_FILE,
+    if not SERIALS_FILE.is_file():
+        raise FileNotFoundError(
+            f"Serial list not found: {SERIALS_FILE}"
+        )
+
+    serials = []
+
+    with SERIALS_FILE.open(
         "r",
-        encoding="utf-8-sig"
+        encoding="utf-8"
     ) as f:
 
-        serials = [
-            line.strip()
-            for line in f
-            if line.strip()
-        ]
+        for line in f:
 
-    # Udaljaem dublikaty,
-    # no sohranjaem originalnyj porjadok
-    return list(dict.fromkeys(serials))
+            serial = line.strip()
+
+            if serial:
+                serials.append(serial)
+
+    return serials
 
 
 # ==========================================================
-# FIND ZIP FILES
+# FIND ALL ZIP FILES ONE TIME
+#
+# Eto vazhno dlja skorosti.
+# My ne delaem polnyj os.walk zanovo dlja kazhdogo serial.
 # ==========================================================
 
-def find_zip_files(serial):
+def build_zip_index():
+
+    print()
+    print("Indexing ZIP files...")
+
+    zip_files = []
+
+    for path in SOURCE_ROOT.rglob("*"):
+
+        if (
+            path.is_file()
+            and path.suffix.lower() == ".zip"
+        ):
+            zip_files.append(path)
+
+    print(
+        f"ZIP files found: {len(zip_files)}"
+    )
+
+    return zip_files
+
+
+# ==========================================================
+# FIND NEWEST ZIP FOR SERIAL
+# ==========================================================
+
+def find_newest_zip(
+    serial,
+    zip_files
+):
 
     matches = []
 
-    for root, dirs, files in os.walk(SOURCE_ROOT):
+    serial_lower = serial.lower()
 
-        for filename in files:
+    for zip_path in zip_files:
 
-            if not filename.lower().endswith(".zip"):
-                continue
-
-            # Serial mozhet nahoditsja v ljubom meste
-            # imeni ZIP faila
-            if serial not in filename:
-                continue
-
-            full_path = Path(root) / filename
-
-            try:
-                modified_time = full_path.stat().st_mtime
-            except OSError:
-                continue
-
-            matches.append(
-                (
-                    modified_time,
-                    full_path
-                )
-            )
-
-    return matches
-
-
-# ==========================================================
-# GET NEWEST ZIP
-# ==========================================================
-
-def get_newest_zip(serial):
-
-    matches = find_zip_files(serial)
+        if serial_lower in zip_path.name.lower():
+            matches.append(zip_path)
 
     if not matches:
         return None
 
-    # Samyj novyj po Last Modified
-    matches.sort(
-        key=lambda item: item[0],
-        reverse=True
+    # Samyj novyj fail po modification time.
+    newest = max(
+        matches,
+        key=lambda p: p.stat().st_mtime
     )
 
-    return matches[0][1]
+    return newest
 
 
 # ==========================================================
-# SAFE COPY
+# SAFE ZIP EXTRACTION
+#
+# Zashchita ot ZIP s putjami tipa ../../file
 # ==========================================================
 
-def copy_file_unique(source, destination_folder, serial):
+def safe_extract_zip(
+    zip_path,
+    destination
+):
 
-    destination_folder.mkdir(
+    destination.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    destination = (
-        destination_folder
-        / source.name
-    )
-
-    # Esli takoe imja uzhe est,
-    # dobavljaem serial.
-    if destination.exists():
-
-        destination = (
-            destination_folder
-            / f"{serial}_{source.name}"
-        )
-
-    shutil.copy2(
-        source,
-        destination
-    )
-
-    return destination
-
-
-# ==========================================================
-# EXTRACT ZIP
-# ==========================================================
-
-def extract_zip(zip_path, serial):
-
-    # Otdelnaja papka dlja kazhdogo serial
-    extract_folder = (
-        EXTRACT_OUTPUT
-        / serial
-    )
-
-    # Esli ostalis starye dannye
-    if extract_folder.exists():
-        shutil.rmtree(
-            extract_folder
-        )
-
-    extract_folder.mkdir(
-        parents=True,
-        exist_ok=True
+    destination_resolved = (
+        destination.resolve()
     )
 
     with zipfile.ZipFile(
@@ -179,120 +149,83 @@ def extract_zip(zip_path, serial):
         "r"
     ) as archive:
 
-        # Zashchita ot ZIP path traversal
-        root_resolved = extract_folder.resolve()
-
         for member in archive.infolist():
 
             target = (
-                extract_folder
+                destination
                 / member.filename
             ).resolve()
 
-            if (
-                target != root_resolved
-                and root_resolved
-                not in target.parents
-            ):
-                raise ValueError(
-                    f"Unsafe ZIP path: "
+            try:
+
+                target.relative_to(
+                    destination_resolved
+                )
+
+            except ValueError:
+
+                raise RuntimeError(
+                    "Unsafe ZIP path detected: "
                     f"{member.filename}"
                 )
 
         archive.extractall(
-            extract_folder
+            destination
         )
 
-    return extract_folder
-
 
 # ==========================================================
-# FIND LOG FILES
+# FIND LOG FILES INSIDE EXTRACTED DIRECTORY
+#
+# Serial mozhet byt v ljubom meste imeni.
+#
+# Primer:
+#
+# 000047910556_692608000023_test.log
+#
+# serial:
+#
+# 692608000023
 # ==========================================================
 
-def find_matching_logs(
-    extract_folder,
+def find_logs(
+    extract_dir,
     serial
 ):
 
     matches = []
 
-    for root, dirs, files in os.walk(
-        extract_folder
-    ):
+    serial_lower = serial.lower()
 
-        for filename in files:
+    for path in extract_dir.rglob("*"):
 
-            # Tolko .log
-            if not filename.lower().endswith(
-                ".log"
-            ):
-                continue
+        if not path.is_file():
+            continue
 
-            # Nam ne vazhno chto stoit pered serial.
-            #
-            # Primer:
-            #
-            # 123456_692608000023_test.log
-            #
-            # najdetsja po:
-            #
-            # 692608000023
-            if serial not in filename:
-                continue
+        if path.suffix.lower() != ".log":
+            continue
 
-            full_path = (
-                Path(root)
-                / filename
-            )
-
-            try:
-                modified_time = (
-                    full_path
-                    .stat()
-                    .st_mtime
-                )
-            except OSError:
-                modified_time = 0
-
-            matches.append(
-                (
-                    modified_time,
-                    full_path
-                )
-            )
+        if serial_lower in path.name.lower():
+            matches.append(path)
 
     return matches
 
 
 # ==========================================================
-# CHOOSE LOG
+# COPY LOG
+#
+# Esli najdeno neskolko LOG,
+# berem samyj novyj.
 # ==========================================================
 
-def get_matching_log(
-    extract_folder,
-    serial
-):
+def select_newest_log(log_files):
 
-    matches = find_matching_logs(
-        extract_folder,
-        serial
-    )
+    if not log_files:
+        return None
 
-    if not matches:
-        return None, 0
-
-    # Esli v archive neskolko LOG
-    # s etim serial,
-    # berem samyj novyj.
-    matches.sort(
-        key=lambda item: item[0],
-        reverse=True
-    )
-
-    return (
-        matches[0][1],
-        len(matches)
+    return max(
+        log_files,
+        key=lambda p: p.stat().st_mtime
     )
 
 
@@ -302,98 +235,98 @@ def get_matching_log(
 
 def main():
 
-    serials = load_serials()
+    if not SOURCE_ROOT.is_dir():
 
-    if not serials:
         print(
-            "No serial numbers found."
+            f"Source folder not found: "
+            f"{SOURCE_ROOT}"
         )
+
         return
 
-    ZIP_OUTPUT.mkdir(
+
+    ZIP_OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    EXTRACT_OUTPUT.mkdir(
+    EXTRACT_ROOT.mkdir(
         parents=True,
         exist_ok=True
     )
 
-    LOG_OUTPUT.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    REPORT_FILE.parent.mkdir(
+    LOG_OUTPUT_DIR.mkdir(
         parents=True,
         exist_ok=True
     )
 
 
+    serials = load_serials()
+
+    print(
+        f"Serial numbers loaded: "
+        f"{len(serials)}"
+    )
+
+
+    # Indeksiruem ZIP odin raz.
+    zip_files = build_zip_index()
+
+
+    scanned = []
+    missing = []
     report = []
 
-    scanned_serials = []
 
-    missing_serials = []
+    # ======================================================
+    # PROCESS SERIALS
+    # ======================================================
 
-
-    print(
-        f"Serial numbers: {len(serials)}"
-    )
-
-    print(
-        "=" * 70
-    )
-
-
-    for index, serial in enumerate(
+    for number, serial in enumerate(
         serials,
         start=1
     ):
 
         print()
         print(
-            f"[{index}/{len(serials)}] "
+            "=" * 70
+        )
+
+        print(
+            f"[{number}/{len(serials)}] "
             f"Serial: {serial}"
         )
 
 
         # ==================================================
-        # FIND NEWEST ZIP
+        # FIND ZIP
         # ==================================================
 
-        newest_zip = get_newest_zip(
-            serial
+        newest_zip = find_newest_zip(
+            serial,
+            zip_files
         )
 
 
         if newest_zip is None:
 
             print(
-                "  ZIP: NOT FOUND"
+                "ZIP NOT FOUND"
             )
 
-            missing_serials.append(
-                serial
+            missing.append(
+                f"{serial}\tZIP_NOT_FOUND"
             )
 
-            report.append({
-                "serial": serial,
-                "status": "ZIP_NOT_FOUND",
-                "source_zip": "",
-                "copied_zip": "",
-                "log_matches": 0,
-                "source_log": "",
-                "copied_log": ""
-            })
+            report.append(
+                f"{serial}\tZIP_NOT_FOUND"
+            )
 
             continue
 
 
         print(
-            f"  ZIP found: "
-            f"{newest_zip}"
+            f"Newest ZIP: {newest_zip}"
         )
 
 
@@ -401,282 +334,58 @@ def main():
         # COPY ZIP
         # ==================================================
 
-        copied_zip = copy_file_unique(
+        copied_zip = (
+            ZIP_OUTPUT_DIR
+            / newest_zip.name
+        )
+
+
+        shutil.copy2(
             newest_zip,
-            ZIP_OUTPUT,
-            serial
+            copied_zip
         )
 
 
         print(
-            f"  ZIP copied: "
-            f"{copied_zip}"
+            f"ZIP copied: {copied_zip}"
         )
 
 
         # ==================================================
         # EXTRACT
+        #
+        # Dlja kazhdogo serial otdelnaja papka.
         # ==================================================
+
+        extract_dir = (
+            EXTRACT_ROOT
+            / serial
+        )
+
+
+        # Esli papka ostalas ot starogo zapuska,
+        # ochishchaem ee.
+        if extract_dir.exists():
+
+            shutil.rmtree(
+                extract_dir
+            )
+
+
+        extract_dir.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
 
         try:
 
-            extract_folder = extract_zip(
+            safe_extract_zip(
                 copied_zip,
-                serial
+                extract_dir
             )
 
-        except (
-            zipfile.BadZipFile,
-            OSError,
-            ValueError
-        ) as error:
+        except Exception as error:
 
             print(
-                f"  ZIP extraction ERROR: "
-                f"{error}"
-            )
-
-            missing_serials.append(
-                serial
-            )
-
-            report.append({
-                "serial": serial,
-                "status": "ZIP_ERROR",
-                "source_zip": str(
-                    newest_zip
-                ),
-                "copied_zip": str(
-                    copied_zip
-                ),
-                "log_matches": 0,
-                "source_log": "",
-                "copied_log": ""
-            })
-
-            continue
-
-
-        print(
-            f"  Extracted: "
-            f"{extract_folder}"
-        )
-
-
-        # ==================================================
-        # FIND LOG
-        # ==================================================
-
-        log_file, match_count = (
-            get_matching_log(
-                extract_folder,
-                serial
-            )
-        )
-
-
-        if log_file is None:
-
-            print(
-                "  LOG: NOT FOUND"
-            )
-
-            missing_serials.append(
-                serial
-            )
-
-            report.append({
-                "serial": serial,
-                "status": "LOG_NOT_FOUND",
-                "source_zip": str(
-                    newest_zip
-                ),
-                "copied_zip": str(
-                    copied_zip
-                ),
-                "log_matches": 0,
-                "source_log": "",
-                "copied_log": ""
-            })
-
-            continue
-
-
-        print(
-            f"  LOG matches: "
-            f"{match_count}"
-        )
-
-        print(
-            f"  LOG selected: "
-            f"{log_file}"
-        )
-
-
-        # ==================================================
-        # COPY LOG
-        # ==================================================
-
-        copied_log = copy_file_unique(
-            log_file,
-            LOG_OUTPUT,
-            serial
-        )
-
-
-        print(
-            f"  LOG copied: "
-            f"{copied_log}"
-        )
-
-
-        scanned_serials.append(
-            serial
-        )
-
-
-        report.append({
-            "serial": serial,
-            "status": "OK",
-            "source_zip": str(
-                newest_zip
-            ),
-            "copied_zip": str(
-                copied_zip
-            ),
-            "log_matches": match_count,
-            "source_log": str(
-                log_file
-            ),
-            "copied_log": str(
-                copied_log
-            )
-        })
-
-
-    # ======================================================
-    # WRITE CSV REPORT
-    # ======================================================
-
-    with open(
-        REPORT_FILE,
-        "w",
-        newline="",
-        encoding="utf-8-sig"
-    ) as f:
-
-        fieldnames = [
-            "serial",
-            "status",
-            "source_zip",
-            "copied_zip",
-            "log_matches",
-            "source_log",
-            "copied_log"
-        ]
-
-        writer = csv.DictWriter(
-            f,
-            fieldnames=fieldnames
-        )
-
-        writer.writeheader()
-
-        writer.writerows(
-            report
-        )
-
-
-    # ======================================================
-    # WRITE SCANNED LIST
-    # ======================================================
-
-    with open(
-        SCANNED_SERIALS_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        for serial in scanned_serials:
-            f.write(
-                serial + "\n"
-            )
-
-
-    # ======================================================
-    # WRITE MISSING LIST
-    # ======================================================
-
-    with open(
-        MISSING_SERIALS_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
-
-        for serial in missing_serials:
-            f.write(
-                serial + "\n"
-            )
-
-
-    # ======================================================
-    # SUMMARY
-    # ======================================================
-
-    print()
-    print()
-    print(
-        "=" * 70
-    )
-
-    print(
-        "COMPLETED"
-    )
-
-    print(
-        "=" * 70
-    )
-
-    print(
-        f"Input serials:    "
-        f"{len(serials)}"
-    )
-
-    print(
-        f"Logs collected:   "
-        f"{len(scanned_serials)}"
-    )
-
-    print(
-        f"Missing/errors:   "
-        f"{len(missing_serials)}"
-    )
-
-    print()
-
-    print(
-        f"Report:\n"
-        f"{REPORT_FILE}"
-    )
-
-    print()
-
-    print(
-        f"Scanned serials:\n"
-        f"{SCANNED_SERIALS_FILE}"
-    )
-
-    print()
-
-    print(
-        f"Missing serials:\n"
-        f"{MISSING_SERIALS_FILE}"
-    )
-
-    print(
-        "=" * 70
-    )
-
-
-if __name__ == "__main__":
-    main()
+                f"ZIP extraction failed: "
