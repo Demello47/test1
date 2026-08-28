@@ -1,5 +1,6 @@
 import os
 import stat
+import getpass
 from pathlib import Path
 from datetime import datetime
 
@@ -10,27 +11,30 @@ import paramiko
 # SETTINGS
 # ==========================================================
 
+# Файл со списком серийных номеров.
+# Один serial number на одной строке.
 SERIALS_FILE = Path("serials.txt")
 
+
+# SSH / SFTP server
 SSH_HOST = "SERVER_IP_OR_HOSTNAME"
 SSH_PORT = 22
 SSH_USERNAME = "username"
 
-# Luchshe ne hranit parol v kode.
-# Esli ispolzuetsja SSH key - ukazhi put.
-SSH_KEY_FILE = Path(
-    r"C:\Users\YOUR_USER\.ssh\id_ed25519"
-)
 
-# Udalenaja papka na servere
+# Удалённая папка на сервере,
+# где нужно рекурсивно искать ZIP.
 REMOTE_ROOT = "/path/to/archive/root"
 
-# Lokalnaja papka dlja skachannyh ZIP
+
+# Локальная папка для скачанных ZIP.
 DOWNLOAD_DIR = Path(
     r"C:\Logs\DOWNLOADED_ZIPS"
 )
 
-SCANNED_FILE = Path(
+
+# Отчёты
+DOWNLOADED_FILE = Path(
     "downloaded_serials.txt"
 )
 
@@ -44,12 +48,13 @@ REPORT_FILE = Path(
 
 
 # ==========================================================
-# LOAD SERIALS
+# LOAD SERIAL NUMBERS
 # ==========================================================
 
 def load_serials():
 
     if not SERIALS_FILE.is_file():
+
         raise FileNotFoundError(
             f"Serial list not found: {SERIALS_FILE}"
         )
@@ -59,14 +64,18 @@ def load_serials():
     with SERIALS_FILE.open(
         "r",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
-        for line in f:
+        for line in file:
 
             serial = line.strip()
 
-            if serial:
-                serials.append(serial)
+            if not serial:
+                continue
+
+            serials.append(
+                serial
+            )
 
     return serials
 
@@ -77,30 +86,60 @@ def load_serials():
 
 def connect_sftp():
 
+    # Пароль не сохраняется в коде.
+    # При вводе на экране ничего не отображается.
+    password = getpass.getpass(
+        "SSH password: "
+    )
+
     client = paramiko.SSHClient()
 
+    # Для первого теста автоматически принимаем
+    # неизвестный host key.
     client.set_missing_host_key_policy(
         paramiko.AutoAddPolicy()
+    )
+
+    print(
+        f"Connecting to "
+        f"{SSH_HOST}:{SSH_PORT}..."
     )
 
     client.connect(
         hostname=SSH_HOST,
         port=SSH_PORT,
         username=SSH_USERNAME,
-        key_filename=str(SSH_KEY_FILE),
+        password=password,
+
         look_for_keys=False,
         allow_agent=False,
-        timeout=20
+
+        timeout=30,
+        banner_timeout=30,
+        auth_timeout=30
     )
 
-    return client, client.open_sftp()
+    print(
+        "SSH connected."
+    )
+
+    sftp = client.open_sftp()
+
+    print(
+        "SFTP connected."
+    )
+
+    return client, sftp
 
 
 # ==========================================================
 # RECURSIVE REMOTE WALK
 # ==========================================================
 
-def walk_remote(sftp, remote_dir):
+def walk_remote(
+    sftp,
+    remote_dir
+):
 
     try:
 
@@ -111,12 +150,15 @@ def walk_remote(sftp, remote_dir):
     except OSError as error:
 
         print(
-            f"Cannot read remote dir: "
-            f"{remote_dir}: {error}"
+            f"Cannot read remote directory: "
+            f"{remote_dir}"
+        )
+
+        print(
+            f"Reason: {error}"
         )
 
         return
-
 
     for entry in entries:
 
@@ -126,7 +168,7 @@ def walk_remote(sftp, remote_dir):
             + entry.filename
         )
 
-
+        # Directory
         if stat.S_ISDIR(
             entry.st_mode
         ):
@@ -136,70 +178,119 @@ def walk_remote(sftp, remote_dir):
                 remote_path
             )
 
-
+        # Regular file
         elif stat.S_ISREG(
             entry.st_mode
         ):
 
-            yield remote_path, entry
+            yield (
+                remote_path,
+                entry
+            )
 
 
 # ==========================================================
-# BUILD ZIP INDEX ONCE
+# BUILD ZIP INDEX
+#
+# Сервер сканируется только ОДИН раз.
+# После этого поиск serial идёт по локальному списку ZIP.
 # ==========================================================
 
-def build_zip_index(sftp):
+def build_zip_index(
+    sftp
+):
+
+    print()
+    print(
+        "=" * 70
+    )
 
     print(
-        f"Scanning remote root: "
+        "SCANNING REMOTE ZIP FILES"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        f"Remote root: "
         f"{REMOTE_ROOT}"
     )
 
+    print()
+
     zip_files = []
 
-    count = 0
+    total_files = 0
+    total_zips = 0
 
-
-    for remote_path, attrs in walk_remote(
+    for (
+        remote_path,
+        attrs
+    ) in walk_remote(
         sftp,
         REMOTE_ROOT
     ):
+
+        total_files += 1
 
         if not remote_path.lower().endswith(
             ".zip"
         ):
             continue
 
+        total_zips += 1
+
         zip_files.append({
-            "path": remote_path,
-            "name": os.path.basename(
-                remote_path
-            ),
-            "mtime": attrs.st_mtime,
-            "size": attrs.st_size
+
+            "path":
+                remote_path,
+
+            "name":
+                os.path.basename(
+                    remote_path
+                ),
+
+            "mtime":
+                attrs.st_mtime,
+
+            "size":
+                attrs.st_size,
         })
 
-        count += 1
-
-
-        if count % 1000 == 0:
+        if total_zips % 500 == 0:
 
             print(
-                f"ZIP indexed: {count:,}",
+                f"ZIP indexed: "
+                f"{total_zips:,}",
                 flush=True
             )
 
+    print()
 
     print(
-        f"Total ZIP files: "
-        f"{len(zip_files):,}"
+        f"Remote files scanned: "
+        f"{total_files:,}"
     )
+
+    print(
+        f"ZIP files indexed:    "
+        f"{total_zips:,}"
+    )
+
+    print()
 
     return zip_files
 
 
 # ==========================================================
 # FIND NEWEST ZIP FOR SERIAL
+#
+# Serial может быть в любом месте имени ZIP.
+#
+# Если найдено несколько ZIP для одного serial,
+# выбирается самый новый по modification time.
 # ==========================================================
 
 def find_newest_zip(
@@ -207,25 +298,64 @@ def find_newest_zip(
     zip_index
 ):
 
-    matches = [
+    serial_lower = (
+        serial.lower()
+    )
 
-        item
+    matches = []
 
-        for item in zip_index
+    for item in zip_index:
 
-        if serial.lower()
-        in item["name"].lower()
+        if (
+            serial_lower
+            in item["name"].lower()
+        ):
 
-    ]
-
+            matches.append(
+                item
+            )
 
     if not matches:
-        return None
 
+        return None, 0
 
-    return max(
+    newest = max(
         matches,
-        key=lambda x: x["mtime"]
+        key=lambda item:
+        item["mtime"]
+    )
+
+    return (
+        newest,
+        len(matches)
+    )
+
+
+# ==========================================================
+# DOWNLOAD FILE
+# ==========================================================
+
+def download_file(
+    sftp,
+    remote_file,
+    local_file
+):
+
+    print(
+        "Downloading:"
+    )
+
+    print(
+        f"  FROM: {remote_file}"
+    )
+
+    print(
+        f"  TO:   {local_file}"
+    )
+
+    sftp.get(
+        remote_file,
+        str(local_file)
     )
 
 
@@ -235,24 +365,88 @@ def find_newest_zip(
 
 def main():
 
+    # ======================================================
+    # CHECK SETTINGS
+    # ======================================================
+
+    if (
+        SSH_HOST
+        == "SERVER_IP_OR_HOSTNAME"
+    ):
+
+        print(
+            "ERROR: Set SSH_HOST first."
+        )
+
+        return
+
+    if (
+        SSH_USERNAME
+        == "username"
+    ):
+
+        print(
+            "ERROR: Set SSH_USERNAME first."
+        )
+
+        return
+
+    if (
+        REMOTE_ROOT
+        == "/path/to/archive/root"
+    ):
+
+        print(
+            "ERROR: Set REMOTE_ROOT first."
+        )
+
+        return
+
+
+    # ======================================================
+    # CREATE LOCAL DOWNLOAD DIRECTORY
+    # ======================================================
+
     DOWNLOAD_DIR.mkdir(
         parents=True,
         exist_ok=True
     )
 
 
-    serials = load_serials()
+    # ======================================================
+    # LOAD SERIAL NUMBERS
+    # ======================================================
+
+    try:
+
+        serials = load_serials()
+
+    except Exception as error:
+
+        print(
+            f"ERROR: {error}"
+        )
+
+        return
 
 
     print(
-        f"Serials loaded: "
+        f"Serial numbers loaded: "
         f"{len(serials)}"
     )
 
 
+    if not serials:
+
+        print(
+            "No serial numbers found."
+        )
+
+        return
+
+
     client = None
     sftp = None
-
 
     downloaded = []
     missing = []
@@ -261,57 +455,117 @@ def main():
 
     try:
 
+        # ==================================================
+        # CONNECT
+        # ==================================================
+
         client, sftp = connect_sftp()
 
 
-        # Vazhno:
-        # Server skaniruem tolko ODIN raz.
+        # ==================================================
+        # INDEX ZIP FILES ON SERVER
+        # ==================================================
+
         zip_index = build_zip_index(
             sftp
         )
 
 
-        for number, serial in enumerate(
+        if not zip_index:
+
+            print(
+                "No ZIP files found "
+                "in remote directory."
+            )
+
+            return
+
+
+        # ==================================================
+        # PROCESS EACH SERIAL
+        # ==================================================
+
+        for (
+            number,
+            serial
+        ) in enumerate(
             serials,
             start=1
         ):
 
             print()
             print(
+                "=" * 70
+            )
+
+            print(
                 f"[{number}/{len(serials)}] "
-                f"{serial}"
+                f"Serial: {serial}"
+            )
+
+            print(
+                "=" * 70
             )
 
 
-            newest = find_newest_zip(
-                serial,
-                zip_index
+            newest, match_count = (
+                find_newest_zip(
+                    serial,
+                    zip_index
+                )
             )
 
+
+            # ==============================================
+            # NOT FOUND
+            # ==============================================
 
             if newest is None:
 
                 print(
-                    "NOT FOUND"
+                    "ZIP NOT FOUND"
                 )
 
                 missing.append(
                     serial
                 )
 
-                report.append(
-                    f"{serial}\tNOT_FOUND"
-                )
+                report.append({
+
+                    "serial":
+                        serial,
+
+                    "status":
+                        "NOT_FOUND",
+
+                    "matches":
+                        0,
+
+                    "mtime":
+                        "",
+
+                    "size":
+                        "",
+
+                    "remote":
+                        "",
+
+                    "local":
+                        "",
+                })
 
                 continue
 
+
+            # ==============================================
+            # FOUND
+            # ==============================================
 
             remote_path = newest[
                 "path"
             ]
 
-
-            mtime_text = (
+            modified_time = (
                 datetime.fromtimestamp(
                     newest["mtime"]
                 )
@@ -322,16 +576,43 @@ def main():
 
 
             print(
-                f"Newest: {remote_path}"
+                f"Matching ZIP files: "
+                f"{match_count}"
             )
 
             print(
-                f"Modified: {mtime_text}"
+                "Newest ZIP:"
+            )
+
+            print(
+                f"  {remote_path}"
+            )
+
+            print(
+                "Modified:"
+            )
+
+            print(
+                f"  {modified_time}"
+            )
+
+            print(
+                "Size:"
+            )
+
+            print(
+                f"  "
+                f"{newest['size']:,} bytes"
             )
 
 
-            # Dobavljaem serial v imja,
-            # chtoby ne bylo konfliktov.
+            # ==============================================
+            # LOCAL FILE NAME
+            #
+            # Добавляем serial в начало имени.
+            # Это предотвращает конфликты имён.
+            # ==============================================
+
             local_name = (
                 f"{serial}__"
                 f"{newest['name']}"
@@ -343,15 +624,100 @@ def main():
             )
 
 
-            print(
-                f"Downloading -> "
-                f"{local_path}"
+            # ==============================================
+            # DOWNLOAD
+            # ==============================================
+
+            try:
+
+                download_file(
+                    sftp,
+                    remote_path,
+                    local_path
+                )
+
+            except Exception as error:
+
+                print(
+                    f"DOWNLOAD FAILED: "
+                    f"{error}"
+                )
+
+                missing.append(
+                    serial
+                )
+
+                report.append({
+
+                    "serial":
+                        serial,
+
+                    "status":
+                        "DOWNLOAD_FAILED",
+
+                    "matches":
+                        match_count,
+
+                    "mtime":
+                        modified_time,
+
+                    "size":
+                        newest["size"],
+
+                    "remote":
+                        remote_path,
+
+                    "local":
+                        str(local_path),
+                })
+
+                continue
+
+
+            # ==============================================
+            # VERIFY DOWNLOAD
+            # ==============================================
+
+            if not local_path.is_file():
+
+                print(
+                    "ERROR: File was not created."
+                )
+
+                missing.append(
+                    serial
+                )
+
+                continue
+
+
+            local_size = (
+                local_path.stat().st_size
             )
 
 
-            sftp.get(
-                remote_path,
-                str(local_path)
+            if (
+                local_size
+                != newest["size"]
+            ):
+
+                print(
+                    "WARNING: "
+                    "Downloaded size does not match "
+                    "remote file size."
+                )
+
+                status = (
+                    "SIZE_MISMATCH"
+                )
+
+            else:
+
+                status = "OK"
+
+
+            print(
+                "Downloaded successfully."
             )
 
 
@@ -360,70 +726,174 @@ def main():
             )
 
 
-            report.append(
-                f"{serial}\tOK\t"
-                f"{mtime_text}\t"
-                f"{newest['size']}\t"
-                f"{remote_path}\t"
-                f"{local_path}"
-            )
+            report.append({
+
+                "serial":
+                    serial,
+
+                "status":
+                    status,
+
+                "matches":
+                    match_count,
+
+                "mtime":
+                    modified_time,
+
+                "size":
+                    newest["size"],
+
+                "remote":
+                    remote_path,
+
+                "local":
+                    str(local_path),
+            })
+
+
+    # ======================================================
+    # SSH AUTH ERROR
+    # ======================================================
+
+    except paramiko.AuthenticationException:
+
+        print()
+        print(
+            "SSH AUTHENTICATION FAILED."
+        )
+
+        print(
+            "Check username/password."
+        )
+
+        return
+
+
+    # ======================================================
+    # SSH GENERAL ERROR
+    # ======================================================
+
+    except paramiko.SSHException as error:
+
+        print()
+        print(
+            f"SSH ERROR: {error}"
+        )
+
+        return
+
+
+    except Exception as error:
+
+        print()
+        print(
+            f"ERROR: {error}"
+        )
+
+        return
 
 
     finally:
 
         if sftp is not None:
-            sftp.close()
+
+            try:
+                sftp.close()
+            except Exception:
+                pass
 
         if client is not None:
-            client.close()
+
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
     # ======================================================
-    # REPORTS
+    # WRITE DOWNLOADED SERIAL LIST
     # ======================================================
 
-    with SCANNED_FILE.open(
+    with DOWNLOADED_FILE.open(
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
         for serial in downloaded:
-            f.write(
-                serial + "\n"
+
+            file.write(
+                serial
+                + "\n"
             )
 
+
+    # ======================================================
+    # WRITE MISSING SERIAL LIST
+    # ======================================================
 
     with MISSING_FILE.open(
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
         for serial in missing:
-            f.write(
-                serial + "\n"
+
+            file.write(
+                serial
+                + "\n"
             )
 
+
+    # ======================================================
+    # WRITE FULL REPORT
+    # ======================================================
 
     with REPORT_FILE.open(
         "w",
         encoding="utf-8"
-    ) as f:
+    ) as file:
 
-        f.write(
-            "SERIAL\tSTATUS\tMTIME\tSIZE\t"
-            "REMOTE_FILE\tLOCAL_FILE\n"
+        file.write(
+            "SERIAL\t"
+            "STATUS\t"
+            "MATCHES\t"
+            "MODIFIED\t"
+            "SIZE\t"
+            "REMOTE_FILE\t"
+            "LOCAL_FILE\n"
         )
 
-        for line in report:
-            f.write(
-                line + "\n"
+
+        for item in report:
+
+            file.write(
+
+                f"{item['serial']}\t"
+                f"{item['status']}\t"
+                f"{item['matches']}\t"
+                f"{item['mtime']}\t"
+                f"{item['size']}\t"
+                f"{item['remote']}\t"
+                f"{item['local']}\n"
             )
 
 
+    # ======================================================
+    # FINAL SUMMARY
+    # ======================================================
+
     print()
-    print("=" * 70)
-    print("DOWNLOAD COMPLETED")
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
+
+    print(
+        "DOWNLOAD COMPLETED"
+    )
+
+    print(
+        "=" * 70
+    )
 
     print(
         f"Original serials: "
@@ -431,13 +901,43 @@ def main():
     )
 
     print(
-        f"Downloaded: "
+        f"Downloaded:       "
         f"{len(downloaded)}"
     )
 
     print(
-        f"Missing: "
+        f"Missing/errors:   "
         f"{len(missing)}"
+    )
+
+    print()
+
+    print(
+        "Downloaded list:"
+    )
+
+    print(
+        f"  {DOWNLOADED_FILE}"
+    )
+
+    print(
+        "Missing list:"
+    )
+
+    print(
+        f"  {MISSING_FILE}"
+    )
+
+    print(
+        "Full report:"
+    )
+
+    print(
+        f"  {REPORT_FILE}"
+    )
+
+    print(
+        "=" * 70
     )
 
 
