@@ -1,3 +1,8 @@
+
+
+python.exe -c "import aardvark_py as aa; n, ports, ids = aa.aa_find_devices_ext(16, 16); [print(f'Port: {ports[i] & 0x7FFF} | Serial: {ids[i]//1000000:04d}-{ids[i]%1000000:06d}') for i in range(n)]"
+
+
 Select-String -Path "C:\logs\pass_run\template_summary.json" -Pattern '"statistics"' -Context 0,5
 
 findstr /C:"\"statistics\"" C:\logs\pass_run\template_summary.json
