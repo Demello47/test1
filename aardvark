@@ -1,0 +1,30 @@
+
+import ctypes
+from pathlib import Path
+
+dll_path = Path(__file__).resolve().parent / "aardvark.dll"
+dll = ctypes.CDLL(str(dll_path))
+
+dll.aa_find_devices_ext.argtypes = [
+    ctypes.c_int,
+    ctypes.POINTER(ctypes.c_uint16),
+    ctypes.c_int,
+    ctypes.POINTER(ctypes.c_uint32)
+]
+dll.aa_find_devices_ext.restype = ctypes.c_int
+
+ports = (ctypes.c_uint16 * 32)()
+serials = (ctypes.c_uint32 * 32)()
+
+count = dll.aa_find_devices_ext(32, ports, 32, serials)
+
+if count < 0:
+    print(f"API error: {count}")
+elif count == 0:
+    print("No Aardvark devices found")
+else:
+    for i in range(min(count, 32)):
+        port = ports[i] & 0x7FFF
+        status = "IN USE" if ports[i] & 0x8000 else "AVAILABLE"
+        serial = f"{serials[i] // 1000000:04d}-{serials[i] % 1000000:06d}"
+        print(f"Port: {port} | Serial: {serial} | {status}")
