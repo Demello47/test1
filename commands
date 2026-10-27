@@ -115,6 +115,8 @@ python3 -c "import ijson; f=open('drain_templates.json','rb'); items=ijson.items
 
 #########################
 
+sudo nano /etc/systemd/system/g480-gpio.service
+
 [Unit]
 Description=G480 GPIO Initialization
 After=local-fs.target
