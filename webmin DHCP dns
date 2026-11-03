@@ -1,0 +1,107 @@
+# Webmin + DHCP + BIND9 — Ubuntu/Debian
+
+Команды для установки Webmin, администрирования существующего DHCP и установки DNS-сервера BIND9.
+
+> Перед изменениями проверьте ОС и тип DHCP. Не устанавливайте второй DHCP-сервер поверх работающего. Ограничьте доступ к Webmin и DNS доверенными сетями.
+
+## 1. Проверка системы
+
+```bash
+cat /etc/os-release
+hostname -I
+ip -br addr
+```
+
+## 2. Определение DHCP-сервера
+
+```bash
+systemctl status isc-dhcp-server
+systemctl status kea-dhcp4-server
+systemctl status dnsmasq
+```
+
+Если сервис отсутствует, команда может вывести `Unit ... could not be found`.
+
+## 3. Установка Webmin
+
+```bash
+sudo apt update
+sudo apt install -y curl gnupg ca-certificates
+curl -fsSL https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh -o webmin-setup-repo.sh
+sudo sh webmin-setup-repo.sh
+sudo apt install -y webmin
+sudo systemctl enable --now webmin
+sudo systemctl status webmin
+```
+
+Адрес панели: `https://SERVER_IP:10000`.
+
+## 4. Доступ к Webmin (UFW)
+
+Замените `ADMIN_IP` реальным IP администратора. Не открывайте порт 10000 всему интернету.
+
+```bash
+sudo ufw status verbose
+sudo ufw allow from ADMIN_IP to any port 10000 proto tcp
+sudo ufw status numbered
+```
+
+Не включайте UFW на удалённом сервере без предварительной проверки разрешения SSH.
+
+## 5. Установка DNS BIND9
+
+```bash
+sudo apt update
+sudo apt install -y bind9 bind9-utils dnsutils
+sudo systemctl enable --now named
+sudo systemctl status named
+```
+
+На некоторых системах служба называется `bind9`; проверьте:
+
+```bash
+systemctl list-unit-files | grep -E '^(named|bind9)\.service'
+```
+
+## 6. Проверка конфигурации DNS
+
+```bash
+sudo named-checkconf
+sudo ss -lntup | grep ':53'
+dig @127.0.0.1 example.com
+```
+
+Рекурсивные запросы будут работать только после корректной настройки BIND9 и сетевого доступа.
+
+## 7. Управление сервисами
+
+```bash
+sudo systemctl restart webmin
+sudo systemctl status webmin
+sudo systemctl restart named
+sudo systemctl status named
+```
+
+## 8. Логи и диагностика
+
+```bash
+sudo journalctl -u webmin -n 50 --no-pager
+sudo journalctl -u named -n 50 --no-pager
+sudo ss -lntup | grep -E ':53|:10000'
+```
+
+## 9. Webmin — модули
+
+- **Servers → DHCP Server** — управление ISC DHCP, если модуль совместим с установленной версией.
+- **Servers → BIND DNS Server** — управление зонами и записями BIND9.
+- Для **Kea DHCP** совместимость и наличие отдельного модуля Webmin нужно проверить; стандартный модуль ISC DHCP не подходит автоматически.
+
+## 10. Следующие шаги
+
+1. Создать внутреннюю DNS-зону и обратную зону PTR.
+2. Ограничить рекурсию DNS локальными подсетями.
+3. Разрешить TCP/UDP 53 только нужным сетям.
+4. Проверить DNS с клиентского компьютера.
+5. Только после проверки указать адрес DNS в настройках DHCP.
+
+> Не меняйте DHCP option 6 (DNS servers) до проверки работоспособности DNS. Не публикуйте внутренние DNS-зоны и резервные копии конфигураций с секретами в открытом репозитории.
