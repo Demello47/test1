@@ -1,5 +1,7 @@
 
 
+
+
 python.exe -c "import aardvark_py as aa; n, ports, ids = aa.aa_find_devices_ext(16, 16); [print(f'Port: {ports[i] & 0x7FFF} | Serial: {ids[i]//1000000:04d}-{ids[i]%1000000:06d}') for i in range(n)]"
 
 
@@ -138,3 +140,19 @@ sudo systemctl enable --now g480-gpio.service
 ############
 
 docker run -dit --name win-test IMAGE_NAME cmd
+
+
+###$$¢#############
+DNS
+#########
+$TTL 3600
+@ IN SOA ns1.internal. admin.internal. (
+    2026111201
+    3600
+    900
+    604800
+    3600
+)
+
+@   IN NS ns1.internal.
+ns1 IN A 192.168.2.250
