@@ -250,13 +250,23 @@ zone "internal" {
 sudo nano /etc/bind/db.internal
 
 
+
+$TTL 3600
+
 @ IN SOA ns1.internal. admin.internal. (
     2026111301 ; serial
-    3600
-    900
-    604800
-    3600
+    3600       ; refresh
+    900        ; retry
+    604800     ; expire
+    3600       ; negative TTL
 )
+
+@   IN NS ns1.internal.
+ns1 IN A 192.168.2.250
+
+; BEGIN DHCP
+; END DHCP
+
 
 ###############
 sudo python3 /usr/local/bin/dhcp_dns_sync.py
