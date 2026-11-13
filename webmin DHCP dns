@@ -237,3 +237,26 @@ def main():
 if __name__ == "__main__":
     main()
 
+###################
+
+sudo cat /etc/bind/named.conf.local
+
+zone "internal" {
+    type master;
+    file "/etc/bind/db.internal";
+};
+
+##################
+sudo nano /etc/bind/db.internal
+
+
+@ IN SOA ns1.internal. admin.internal. (
+    2026111301 ; serial
+    3600
+    900
+    604800
+    3600
+)
+
+###############
+sudo python3 /usr/local/bin/dhcp_dns_sync.py
