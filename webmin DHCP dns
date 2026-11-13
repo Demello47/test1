@@ -105,3 +105,135 @@ sudo ss -lntup | grep -E ':53|:10000'
 5. Только после проверки указать адрес DNS в настройках DHCP.
 
 > Не меняйте DHCP option 6 (DNS servers) до проверки работоспособности DNS. Не публикуйте внутренние DNS-зоны и резервные копии конфигураций с секретами в открытом репозитории.
+
+########№############
+
+
+import os
+import shutil
+import ipaddress
+import subprocess
+
+DHCP = "/etc/dhcp/dhcpd.conf"
+DNS = "/etc/bind/db.internal"
+DOMAIN = "internal"
+
+START = "; BEGIN DHCP"
+END = "; END DHCP"
+
+
+def check_dhcp():
+    result = subprocess.run(
+        ["dhcpd", "-t", "-cf", DHCP]
+    )
+    if result.returncode != 0:
+        raise Exception("DHCP configuration error")
+
+
+def get_hosts():
+    hosts = {}
+    name = ""
+
+    with open(DHCP) as file:
+        for line in file:
+            line = line.split("#")[0].strip()
+
+            if line.startswith("host ") and line.endswith("{"):
+                name = line.split()[1].lower()
+
+            elif name and line.startswith("fixed-address "):
+                ip = line.split()[1].strip(";")
+                ipaddress.IPv4Address(ip)
+
+                if name in hosts:
+                    raise Exception("Duplicate host: " + name)
+
+                if ip in hosts.values():
+                    raise Exception("Duplicate IP: " + ip)
+
+                hosts[name] = ip
+
+            elif line.startswith("}"):
+                name = ""
+
+    if not hosts:
+        raise Exception("No DHCP hosts found")
+
+    return hosts
+
+
+def update_dns(hosts):
+    with open(DNS) as file:
+        old_dns = file.read()
+
+    if START in old_dns and END in old_dns:
+        before = old_dns.split(START)[0]
+        after = old_dns.split(END, 1)[1]
+    else:
+        before = old_dns.rstrip() + "\n\n"
+        after = ""
+
+    records = START + "\n"
+
+    for name, ip in sorted(hosts.items()):
+        records += f"{name} IN A {ip}\n"
+
+    records += END
+
+    new_dns = before + records + after
+
+    if new_dns == old_dns:
+        print("No changes")
+        return
+
+    lines = new_dns.splitlines()
+    found = False
+
+    for i, line in enumerate(lines):
+        if "; serial" in line:
+            number = int(line.split()[0])
+            lines[i] = f"    {number + 1} ; serial"
+            found = True
+            break
+
+    if not found:
+        raise Exception("SOA serial not found")
+
+    new_dns = "\n".join(lines) + "\n"
+    temp = DNS + ".tmp"
+
+    with open(temp, "w") as file:
+        file.write(new_dns)
+
+    result = subprocess.run(
+        ["named-checkzone", DOMAIN, temp]
+    )
+
+    if result.returncode != 0:
+        os.remove(temp)
+        raise Exception("DNS zone error")
+
+    shutil.copy2(DNS, DNS + ".backup")
+    os.replace(temp, DNS)
+
+    result = subprocess.run(
+        ["rndc", "reload", DOMAIN]
+    )
+
+    if result.returncode != 0:
+        shutil.copy2(DNS + ".backup", DNS)
+        subprocess.run(["rndc", "reload", DOMAIN])
+        raise Exception("DNS reload failed")
+
+    print("DNS updated:", len(hosts), "hosts")
+
+
+def main():
+    check_dhcp()
+    hosts = get_hosts()
+    update_dns(hosts)
+
+
+if __name__ == "__main__":
+    main()
+
